@@ -5,12 +5,13 @@ import string
 import sys  # Import sys for proper exit handling
 
 # Define paths
-pdf_path = "/Users/aadyachaturvedi/Desktop/practical_2/LectureNotesCompiled.pdf"
-text_file_path = "/Users/aadyachaturvedi/Desktop/practical_2/LectureNotesCompiled_cleaned.txt"
+pdf_path ="LectureNotesCompiled.pdf"
+text_file_path = "preprocessed_text/LectureNotesCompiled_cleaned.txt"  # Save location
 
 # Function to remove bullet points
 def remove_bullets(text):
-    bullet_pattern = re.compile(r"^\s*[\u2022\u2023\u25E6\u2043\u2219\*\-\•\·]+\s*", re.MULTILINE)
+    # Matches common bullet symbols and numbered lists (e.g., "1.", "2)", "•", "- ")
+    bullet_pattern = re.compile(r"^\s*[\u2022\u2023\u25E6\u2043\u2219\*\-\•\●\○\·]?\s*\d*\.*\)*\s*", re.MULTILINE)
     return bullet_pattern.sub("", text)
 
 # Function to remove capital letters
@@ -70,7 +71,6 @@ for size in chunk_sizes:
 try:
     with open(text_file_path, "w", encoding="utf-8") as f:
         for (size, overlap), chunks in chunked_texts.items():
-            f.write(f"\n\n=== Chunk Size: {size}, Overlap: {overlap} ===\n\n")
             f.write("\n\n".join(chunks))
     print(f"Cleaned and chunked text successfully saved to: {text_file_path}")
 except Exception as e:
