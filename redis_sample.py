@@ -2,6 +2,12 @@ import ollama
 import redis
 import numpy as np
 from redis.commands.search.query import Query
+import time
+import psutil
+import os
+
+# wohoooo
+process = psutil.Process(os.getpid())
 
 # Initialize Redis connection
 redis_client = redis.Redis(host="localhost", port=6380, db=0)
@@ -89,6 +95,9 @@ def generate_response(query_text: str, model: str = "mistral"):
 
 
 if __name__ == "__main__":
+    start_time = time.time()
+    memory_before = process.memory_info().rss / 1024 ** 2  # Convert to MB
+
     create_hnsw_index()
 
     # Example texts to encode and store
@@ -100,11 +109,38 @@ if __name__ == "__main__":
         "Ollama can generate embeddings for RAG applications.",
     ]
 
+    embed_start_time = time.time()
+    embed_memory_before = process.memory_info().rss / 1024 ** 2  
     for i, text in enumerate(texts):
+
+
         embedding = get_embedding(text)
         store_embedding(str(i), text, embedding)
 
+    embed_end_time = time.time()
+    embed_memory_after = process.memory_info().rss / 1024 ** 2 
+
+    print(f"\nEmbedding Execution Time: {embed_end_time - embed_start_time:.4f} seconds")
+    print(f"Embedding Memory Usage: {embed_memory_after - embed_memory_before:.2f} MB")
+
+
     # Example query and AI-generated response
     query = "How does Redis perform vector searches?"
+
+    query_start_time = time.time()
+    query_memory_before = process.memory_info().rss / 1024 ** 2  
     answer = generate_response(query)
     print("\n🔹 Ollama Generated Response:\n", answer)
+    
+    query_end_time = time.time()
+    query_memory_after = process.memory_info().rss / 1024 ** 2 
+
+    print(f"\nQuery Execution Time: {query_end_time - query_start_time:.4f} seconds")
+    print(f"Query Memory Usage: {query_memory_after - query_memory_before:.2f} MB")
+
+
+    # end of script
+    end_time = time.time()
+    memory_after = process.memory_info().rss / 1024 ** 2  # Convert to MB
+    print(f"\nExecution Time: {end_time - start_time:.4f} seconds")
+    print(f"Memory Usage: {memory_after - memory_before:.2f} MB")
