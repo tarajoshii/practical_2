@@ -6,21 +6,13 @@ import numpy as np
 import time
 import psutil
 import os
+import pandas as pd
 from redis.commands.search.query import Query
 from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, VectorParams, PointStruct
-import redis
-import chromadb
-from qdrant_client import QdrantClient
-import numpy as np
-import redis
-import chromadb
-from qdrant_client import QdrantClient
-from qdrant_client.models import PointStruct, VectorParams, Distance
-
+from itertools import product
 
 # Constants
-
 VECTOR_DIM = 768
 DOC_PREFIX = "doc:"
 COLLECTION_NAME = "embedding_collection"
@@ -37,7 +29,6 @@ def initialize_chroma():
 def initialize_qdrant():
     return QdrantClient("localhost", port=6333)
 
-# Mapping Client Initialization
 CLIENTS = {
     'redis': initialize_redis,
     'chroma': initialize_chroma,
@@ -52,7 +43,6 @@ def initialize_clients(db):
         print(f"Client for '{db}' does not exist.")
         return None
 
-# Common Store Embedding Function
 def store_embedding(client, db, doc_id, text, embedding):
     if db == 'redis':
         key = f"{DOC_PREFIX}{doc_id}"
@@ -81,7 +71,6 @@ def store_embedding(client, db, doc_id, text, embedding):
         return
     print(f"Stored embedding for: {text}")
 
-# Common Get Context Function
 def get_context(client, db, embedding):
     if db == 'redis':
         query = (
@@ -111,14 +100,11 @@ def get_context(client, db, embedding):
     else:
         print(f"Database {db} not supported.")
         return ""
-    
+
     return "\n\n".join(context_texts)
 
-# Function to Generate Response
 def generate_response(db, client, embedding, query_text: str, llm_model: str):
     context = get_context(client, db, embedding)
-    
-    # Construct prompt
     prompt = f"""
     You are an AI assistant. Use the following retrieved context to answer the question accurately:
 
@@ -132,71 +118,97 @@ def generate_response(db, client, embedding, query_text: str, llm_model: str):
     response = ollama.chat(model=llm_model, messages=[{"role": "user", "content": prompt}])
     return response["message"]["content"]
 
-# Function to get embedding (unchanged)
-def get_embedding(text: str, embedding_model: str) -> list: #nomic-embed-text
+def get_embedding(text: str, embedding_model: str) -> list:
     response = ollama.embeddings(model=embedding_model, prompt=text)
     return response["embedding"]
 
-
-def get_answers(db, embedding_model, llm_model):
+def run_experiment(db, embedding_model, llm_model):
     client = initialize_clients(db)
     if not client:
         print("Failed to initialize client.")
-        return
-    
+        return None
+
     process = psutil.Process(os.getpid())
     start_time = time.time()
-    memory_before = process.memory_info().rss / 1024 ** 2  # Convert to MB
-    
-    # Example texts to store and generate embeddings
+    memory_before = process.memory_info().rss / 1024 ** 2
+
     texts = [
         "Redis is an in-memory key-value database.",
         "Ollama provides efficient LLM inference on local machines.",
         "Vector databases store high-dimensional embeddings for similarity search.",
         "HNSW indexing enables fast vector search in Redis.",
-        "Ollama can generate embeddings for RAG applications.",
+        "Ollama can generate embeddings for RAG applications."
     ]
-    
+
     embed_start_time = time.time()
-    embed_memory_before = process.memory_info().rss / 1024 ** 2  # Memory usage before embedding
+    embed_memory_before = process.memory_info().rss / 1024 ** 2
     for i, text in enumerate(texts):
         embedding = get_embedding(text, embedding_model)
-        store_embedding(client, db, str(i), text, embedding)  # Store embedding in the appropriate DB
+        store_embedding(client, db, str(i), text, embedding)
     embed_end_time = time.time()
-    embed_memory_after = process.memory_info().rss / 1024 ** 2  # Memory usage after embedding
-    
-    print(f"\nEmbedding Execution Time: {embed_end_time - embed_start_time:.4f} seconds")
-    print(f"Embedding Memory Usage: {embed_memory_after - embed_memory_before:.2f} MB")
+    embed_memory_after = process.memory_info().rss / 1024 ** 2
 
-    # Example query and AI-generated response
     query = "How does Redis perform vector searches?"
     query_start_time = time.time()
-    query_memory_before = process.memory_info().rss / 1024 ** 2  # Memory usage before query
-    answer = generate_response(db, client, embedding, query, llm_model)  # Pass db and client
-    print("\n🔹 Ollama Generated Response:\n", answer)
-    
+    query_memory_before = process.memory_info().rss / 1024 ** 2
+    answer = generate_response(db, client, embedding, query, llm_model)
     query_end_time = time.time()
-    query_memory_after = process.memory_info().rss / 1024 ** 2  # Memory usage after query
-    
-    print(f"\nQuery Execution Time: {query_end_time - query_start_time:.4f} seconds")
-    print(f"Query Memory Usage: {query_memory_after - query_memory_before:.2f} MB")
+    query_memory_after = process.memory_info().rss / 1024 ** 2
 
-    # Final execution time and memory usage
     end_time = time.time()
-    memory_after = process.memory_info().rss / 1024 ** 2  # Final memory usage
-    print(f"\nTotal Execution Time: {end_time - start_time:.4f} seconds")
-    print(f"Total Memory Usage: {memory_after - memory_before:.2f} MB")
+    memory_after = process.memory_info().rss / 1024 ** 2
 
+    return {
+        "db": db,
+        "embedding_model": embedding_model,
+        "llm_model": llm_model,
+        "embedding_time_sec": embed_end_time - embed_start_time,
+        "embedding_memory_MB": embed_memory_after - embed_memory_before,
+        "query_time_sec": query_end_time - query_start_time,
+        "query_memory_MB": query_memory_after - query_memory_before,
+        "total_time_sec": end_time - start_time,
+        "total_memory_MB": memory_after - memory_before,
+        "answer_snippet": answer[:100]
+    }
 
-# Argument parser setup
+def append_unique_rows(file_path, new_data):
+    # Check if the file exists
+    if os.path.exists(file_path):
+        # Read existing data
+        existing_data = pd.read_csv(file_path)
+        # Concatenate existing data with new data and drop duplicates
+        combined_data = pd.concat([existing_data, new_data]).drop_duplicates()
+    else:
+        # If file doesn't exist, new data becomes the combined data
+        combined_data = new_data
+    
+    # Write the combined data back to the CSV file
+    combined_data.to_csv(file_path, index=False)
+
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Run the vector search and LLM model.")
-    parser.add_argument('--db', type=str, choices=['redis', 'chroma', 'qdrant'], required=True, help="Database to use")
-    parser.add_argument('--embedding_model', type=str, choices=['mxbai-embed-large', 'nomic-embed-text'], required=True, help="Embedding model to use")
-    parser.add_argument('--llm_model', type=str, choices=['mistral','llama-27b'], required=True, help="LLM model to use")
-    
+    parser = argparse.ArgumentParser(description="Run vector + LLM experiments")
+    parser.add_argument('--db', type=str, help="Database to use (or 'all')", default="all")
+    parser.add_argument('--embedding_model', type=str, help="Embedding model to use (or 'all')", default="all")
+    parser.add_argument('--llm_model', type=str, help="LLM model to use (or 'all')", default="all")
+    parser.add_argument('--outfile', type=str, default="experiment_results.csv")
     args = parser.parse_args()
+
+    dbs = ["redis", "chroma", "qdrant"] if args.db == "all" else [args.db]
+    embedding_models = ["mxbai-embed-large", "nomic-embed-text"] if args.embedding_model == "all" else [args.embedding_model]
+    llm_models = ["mistral", "llama2"] if args.llm_model == "all" else [args.llm_model]
+
+    results = []
+    for db, emb_model, llm_model in product(dbs, embedding_models, llm_models):
+        print(f"\n▶️ Running with db={db}, embedding_model={emb_model}, llm_model={llm_model}")
+        result = run_experiment(db, emb_model, llm_model)
+        if result:
+            results.append(result)
+
+    # Convert results to DataFrame
+    new_data = pd.DataFrame(results)
     
-    get_answers(args.db, args.embedding_model, args.llm_model)
-    
-    # ex: python shared.py --db chroma --embedding_model nomic-embed-text --llm_model mistral  
+    # Append unique rows to the CSV file
+    append_unique_rows(args.outfile, new_data)
+    # df = pd.DataFrame(results)
+    # df.to_csv(args.outfile, index=False)
+    print(f"\n✅ Results saved to {args.outfile}")

@@ -7,10 +7,10 @@ import psutil
 import os
 
 # wohoooo
+
 process = psutil.Process(os.getpid())
 
-# Initialize Redis connection
-redis_client = redis.Redis(host="localhost", port=6380, db=0)
+redis_client = redis.Redis(host="localhost", port=6379, db=0)
 
 VECTOR_DIM = 768
 INDEX_NAME = "embedding_index"
@@ -101,13 +101,9 @@ if __name__ == "__main__":
     create_hnsw_index()
 
     # Example texts to encode and store
-    texts = [
-        "Redis is an in-memory key-value database.",
-        "Ollama provides efficient LLM inference on local machines.",
-        "Vector databases store high-dimensional embeddings for similarity search.",
-        "HNSW indexing enables fast vector search in Redis.",
-        "Ollama can generate embeddings for RAG applications.",
-    ]
+    with open('LectureNotesCompiled_cleaned.txt', 'r', encoding='utf-8') as file:
+        texts = [file.read()]
+ 
 
     embed_start_time = time.time()
     embed_memory_before = process.memory_info().rss / 1024 ** 2  
@@ -125,7 +121,13 @@ if __name__ == "__main__":
 
 
     # Example query and AI-generated response
-    query = "How does Redis perform vector searches?"
+    query ="""
+
+Answer the following questions about ACID-compliant transaction processing. In a DB system that is executing exactly two read queries at the same time, is it possible to encounter issues with these reads from the perspective of transaction isolation?  Why or why not?
+
+
+
+    """
 
     query_start_time = time.time()
     query_memory_before = process.memory_info().rss / 1024 ** 2  

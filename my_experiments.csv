@@ -1,0 +1,2 @@
+db,embedding_model,llm_model,embedding_time_sec,embedding_memory_MB,query_time_sec,query_memory_MB,total_time_sec,total_memory_MB,answer_snippet
+redis,nomic-embed-text,mistral,0.8607420921325684,-46.74609375,16.628172159194946,-105.15234375,17.490808248519897,-151.82421875," Redis, a popular key-value database, doesn't inherently support vector searches out of the box. How"
