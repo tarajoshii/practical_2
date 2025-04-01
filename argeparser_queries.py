@@ -193,7 +193,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run the vector search and LLM model.")
     parser.add_argument('--db', type=str, choices=['redis', 'chroma', 'qdrant'], required=True, help="Database to use")
     parser.add_argument('--embedding_model', type=str, choices=['mxbai-embed-large', 'nomic-embed-text'], required=True, help="Embedding model to use")
-    parser.add_argument('--llm_model', type=str, choices=['mistral','llama-27b'], required=True, help="LLM model to use")
+    parser.add_argument('--llm_model', type=str, choices=['mistral','llama-2'], required=True, help="LLM model to use")
     
     args = parser.parse_args()
     

@@ -11,6 +11,8 @@ from redis.commands.search.query import Query
 from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, VectorParams, PointStruct
 from itertools import product
+from sentence_transformers import SentenceTransformer
+
 
 # Constants
 VECTOR_DIM = 768
@@ -18,6 +20,14 @@ DOC_PREFIX = "doc:"
 COLLECTION_NAME = "embedding_collection"
 DISTANCE_METRIC = "COSINE"
 INDEX_NAME = "embedding_index"
+
+file_path = 'my_experiments.csv'
+
+# Step 1: Load existing data once
+if os.path.exists(file_path):
+    existing_data = pd.read_csv(file_path)
+else:
+    existing_data = pd.DataFrame()
 
 # Client Initialization Functions
 def initialize_redis():
@@ -27,7 +37,19 @@ def initialize_chroma():
     return chromadb.Client()
 
 def initialize_qdrant():
-    return QdrantClient("localhost", port=6333)
+    client = QdrantClient(host="localhost", port=6333)
+
+    # does collection exist
+    if not client.collection_exists(COLLECTION_NAME):
+        print(f"Collection '{COLLECTION_NAME}' does not exist. Creating collection.")
+        client.create_collection(
+            collection_name=COLLECTION_NAME,
+            vectors_config=VectorParams(size=VECTOR_DIM, distance=Distance.COSINE),
+        )
+    else:
+        print(f"Collection '{COLLECTION_NAME}' already exists.")
+
+    return client
 
 CLIENTS = {
     'redis': initialize_redis,
@@ -194,21 +216,27 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     dbs = ["redis", "chroma", "qdrant"] if args.db == "all" else [args.db]
-    embedding_models = ["mxbai-embed-large", "nomic-embed-text"] if args.embedding_model == "all" else [args.embedding_model]
+    embedding_models = ["mxbai-embed-large", "nomic-embed-text", "all-minilm"] if args.embedding_model == "all" else [args.embedding_model]
     llm_models = ["mistral", "llama2"] if args.llm_model == "all" else [args.llm_model]
 
-    results = []
-    for db, emb_model, llm_model in product(dbs, embedding_models, llm_models):
-        print(f"\n▶️ Running with db={db}, embedding_model={emb_model}, llm_model={llm_model}")
-        result = run_experiment(db, emb_model, llm_model)
-        if result:
-            results.append(result)
+    file_exists = os.path.isfile(file_path)
 
-    # Convert results to DataFrame
-    new_data = pd.DataFrame(results)
+    with open(file_path, mode='a' if file_exists else 'w', newline='', encoding='utf-8') as file:
+
+        for db, emb_model, llm_model in product(dbs, embedding_models, llm_models):
+            print(f"\n▶️ Running with db={db}, embedding_model={emb_model}, llm_model={llm_model}")
+            result = run_experiment(db, emb_model, llm_model)
+
+            if result:
+                new_data = pd.DataFrame([result])
+                new_data.to_csv(file, index=False, header=not file_exists)
+                file_exists = True
+
+    # # Convert results to DataFrame
+    # new_data = pd.DataFrame(results)
     
-    # Append unique rows to the CSV file
-    append_unique_rows(args.outfile, new_data)
+    # # Append unique rows to the CSV file
+    # append_unique_rows(args.outfile, new_data)
     # df = pd.DataFrame(results)
     # df.to_csv(args.outfile, index=False)
     print(f"\n✅ Results saved to {args.outfile}")
