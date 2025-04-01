@@ -11,13 +11,11 @@ from redis.commands.search.query import Query
 from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, VectorParams, PointStruct
 from itertools import product
-from sentence_transformers import SentenceTransformer
-
 
 # Constants
-VECTOR_DIM = 768
 DOC_PREFIX = "doc:"
-COLLECTION_NAME = "embedding_collection"
+COLLECTION_NAME_BASE = "embedding_collection"
+COLLECTION_NAME = None  # Will be set dynamically
 DISTANCE_METRIC = "COSINE"
 INDEX_NAME = "embedding_index"
 
@@ -36,28 +34,30 @@ def initialize_redis():
 def initialize_chroma():
     return chromadb.Client()
 
-def initialize_qdrant():
+def initialize_qdrant(vector_dim):
+    global COLLECTION_NAME
+    COLLECTION_NAME = f"{COLLECTION_NAME_BASE}_{vector_dim}"
+
     client = QdrantClient(host="localhost", port=6333)
 
-    # does collection exist
     if not client.collection_exists(COLLECTION_NAME):
-        print(f"Collection '{COLLECTION_NAME}' does not exist. Creating collection.")
+        print(f"🌟 Creating Qdrant collection '{COLLECTION_NAME}' with dim={vector_dim}")
         client.create_collection(
             collection_name=COLLECTION_NAME,
-            vectors_config=VectorParams(size=VECTOR_DIM, distance=Distance.COSINE),
+            vectors_config=VectorParams(size=vector_dim, distance=Distance.COSINE),
         )
     else:
-        print(f"Collection '{COLLECTION_NAME}' already exists.")
-
+        print(f"✅ Qdrant collection '{COLLECTION_NAME}' already exists.")
     return client
 
 CLIENTS = {
     'redis': initialize_redis,
-    'chroma': initialize_chroma,
-    'qdrant': initialize_qdrant
+    'chroma': initialize_chroma
 }
 
-def initialize_clients(db):
+def initialize_clients(db, vector_dim=None):
+    if db == 'qdrant':
+        return initialize_qdrant(vector_dim)
     client_initializer = CLIENTS.get(db)
     if client_initializer:
         return client_initializer()
@@ -140,16 +140,12 @@ def generate_response(db, client, embedding, query_text: str, llm_model: str):
     response = ollama.chat(model=llm_model, messages=[{"role": "user", "content": prompt}])
     return response["message"]["content"]
 
-def get_embedding(text: str, embedding_model: str) -> list:
+def get_embedding(text: str, embedding_model: str) -> tuple:
     response = ollama.embeddings(model=embedding_model, prompt=text)
-    return response["embedding"]
+    embedding = response["embedding"]
+    return embedding, len(embedding)
 
 def run_experiment(db, embedding_model, llm_model):
-    client = initialize_clients(db)
-    if not client:
-        print("Failed to initialize client.")
-        return None
-
     process = psutil.Process(os.getpid())
     start_time = time.time()
     memory_before = process.memory_info().rss / 1024 ** 2
@@ -162,18 +158,31 @@ def run_experiment(db, embedding_model, llm_model):
         "Ollama can generate embeddings for RAG applications."
     ]
 
+    # Get embedding for first text and determine vector dimension
+    first_embedding, vector_dim = get_embedding(texts[0], embedding_model)
+    client = initialize_clients(db, vector_dim)
+    if not client:
+        print("Failed to initialize client.")
+        return None
+
     embed_start_time = time.time()
     embed_memory_before = process.memory_info().rss / 1024 ** 2
-    for i, text in enumerate(texts):
-        embedding = get_embedding(text, embedding_model)
+
+    # Store first embedding
+    store_embedding(client, db, "0", texts[0], first_embedding)
+
+    # Store rest
+    for i, text in enumerate(texts[1:], start=1):
+        embedding, _ = get_embedding(text, embedding_model)
         store_embedding(client, db, str(i), text, embedding)
+
     embed_end_time = time.time()
     embed_memory_after = process.memory_info().rss / 1024 ** 2
 
     query = "How does Redis perform vector searches?"
     query_start_time = time.time()
     query_memory_before = process.memory_info().rss / 1024 ** 2
-    answer = generate_response(db, client, embedding, query, llm_model)
+    answer = generate_response(db, client, first_embedding, query, llm_model)
     query_end_time = time.time()
     query_memory_after = process.memory_info().rss / 1024 ** 2
 
@@ -193,20 +202,6 @@ def run_experiment(db, embedding_model, llm_model):
         "answer_snippet": answer[:100]
     }
 
-def append_unique_rows(file_path, new_data):
-    # Check if the file exists
-    if os.path.exists(file_path):
-        # Read existing data
-        existing_data = pd.read_csv(file_path)
-        # Concatenate existing data with new data and drop duplicates
-        combined_data = pd.concat([existing_data, new_data]).drop_duplicates()
-    else:
-        # If file doesn't exist, new data becomes the combined data
-        combined_data = new_data
-    
-    # Write the combined data back to the CSV file
-    combined_data.to_csv(file_path, index=False)
-
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run vector + LLM experiments")
     parser.add_argument('--db', type=str, help="Database to use (or 'all')", default="all")
@@ -222,9 +217,8 @@ if __name__ == "__main__":
     file_exists = os.path.isfile(file_path)
 
     with open(file_path, mode='a' if file_exists else 'w', newline='', encoding='utf-8') as file:
-
         for db, emb_model, llm_model in product(dbs, embedding_models, llm_models):
-            print(f"\n▶️ Running with db={db}, embedding_model={emb_model}, llm_model={llm_model}")
+            print(f"\n🔹 Running with db={db}, embedding_model={emb_model}, llm_model={llm_model}")
             result = run_experiment(db, emb_model, llm_model)
 
             if result:
@@ -232,11 +226,4 @@ if __name__ == "__main__":
                 new_data.to_csv(file, index=False, header=not file_exists)
                 file_exists = True
 
-    # # Convert results to DataFrame
-    # new_data = pd.DataFrame(results)
-    
-    # # Append unique rows to the CSV file
-    # append_unique_rows(args.outfile, new_data)
-    # df = pd.DataFrame(results)
-    # df.to_csv(args.outfile, index=False)
-    print(f"\n✅ Results saved to {args.outfile}")
+    print(f"\n📅 Results saved to {args.outfile}")
