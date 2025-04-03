@@ -35,7 +35,7 @@ Install The Following Libraries:
    python preproc.py
    ```
 2. **Generate Embeddings**  
-   Execute `mxbai_embed_large_sample.py` to process the preprocessed data through the selected embedding models. You can choose between models (e.g., MiniLM, MPNet, or InstructorXL) by modifying the global variable at the top of the script.
+   Execute `mxbai_embed_large_sample.py` to process the preprocessed data through the selected embedding models. You can choose between model by modifying the global variable at the top of the script.
    ```bash
    python mxbai_embed_large_sample.py
    ```
